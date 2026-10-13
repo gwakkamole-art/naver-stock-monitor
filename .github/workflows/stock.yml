@@ -1,0 +1,44 @@
+name: Naver stock monitor
+on:
+  workflow_dispatch:
+    inputs:
+      test_telegram:
+        description: '재고 확인 대신 텔레그램 테스트 알림만 전송'
+        type: boolean
+        default: false
+  schedule:
+    - cron: '3-58/5 * * * *'
+permissions:
+  contents: read
+concurrency:
+  group: naver-stock-monitor
+  cancel-in-progress: false
+jobs:
+  check:
+    if: github.event_name == 'workflow_dispatch' || vars.MONITOR_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt
+      - run: python -m playwright install --with-deps chromium
+      - uses: actions/cache/restore@v4
+        with:
+          path: state
+          key: stock-state-${{ github.run_id }}
+          restore-keys: stock-state-
+      - name: Check stock or test Telegram
+        id: monitor
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TEST_TELEGRAM: ${{ inputs.test_telegram }}
+        run: python monitor.py
+      - uses: actions/cache/save@v4
+        if: steps.monitor.outputs.changed == 'true'
+        with:
+          path: state
+          key: stock-state-${{ github.run_id }}
