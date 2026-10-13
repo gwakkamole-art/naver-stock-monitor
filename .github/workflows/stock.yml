@@ -2,10 +2,16 @@ name: Naver stock monitor
 on:
   workflow_dispatch:
     inputs:
-      test_telegram:
-        description: '재고 확인 대신 텔레그램 테스트 알림만 전송'
-        type: boolean
-        default: false
+      mode:
+        description: 'probe: 접속만 검사 / monitor: 재고 알림 / telegram: 알림 시험'
+        type: choice
+        options: [probe, monitor, telegram]
+        default: probe
+      runner:
+        description: '무료 표준 실행 환경'
+        type: choice
+        options: [macos-15, ubuntu-24.04]
+        default: macos-15
   schedule:
     - cron: '3-58/5 * * * *'
 permissions:
@@ -16,29 +22,37 @@ concurrency:
 jobs:
   check:
     if: github.event_name == 'workflow_dispatch' || vars.MONITOR_ENABLED == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 4
+    runs-on: ${{ inputs.runner || vars.MONITOR_RUNNER || 'macos-15' }}
+    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
       - run: pip install -r requirements.txt
       - run: python -m playwright install --with-deps chromium
       - uses: actions/cache/restore@v4
+        if: inputs.mode != 'probe' && inputs.mode != 'telegram'
         with:
           path: state
-          key: stock-state-${{ github.run_id }}
-          restore-keys: stock-state-
-      - name: Check stock or test Telegram
+          key: stock-state-v2-${{ github.run_id }}
+          restore-keys: stock-state-v2-
+      - name: Check stock
         id: monitor
+        shell: bash
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          TEST_TELEGRAM: ${{ inputs.test_telegram }}
-        run: python monitor.py
+          RUN_MODE: ${{ inputs.mode || 'monitor' }}
+        run: |
+          case "$RUN_MODE" in
+            probe) python monitor.py --probe ;;
+            telegram) python monitor.py --test-telegram ;;
+            monitor) python monitor.py ;;
+            *) exit 2 ;;
+          esac
       - uses: actions/cache/save@v4
-        if: steps.monitor.outputs.changed == 'true'
+        if: always() && steps.monitor.outputs.changed == 'true'
         with:
           path: state
-          key: stock-state-${{ github.run_id }}
+          key: stock-state-v2-${{ github.run_id }}
