@@ -68,4 +68,16 @@ async def main():
 
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except Exception as error:
+        detail = str(error)
+        for secret_name in ('TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID'):
+            secret = os.environ.get(secret_name)
+            if secret:
+                detail = detail.replace(secret, '[REDACTED]')
+        summary = os.environ.get('GITHUB_STEP_SUMMARY')
+        if summary:
+            with open(summary, 'a') as output:
+                output.write('### Stock check failed\n\n```text\n' + detail[:3000] + '\n```\n')
+        raise SystemExit('Stock check failed; see the job summary.')
